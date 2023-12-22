@@ -10,7 +10,6 @@ class HubspotAPI():
     def __init__(self, base_path="", api_key=None, input_file_path="../input_data.csv"):
         self.base_path = base_path
         self.input_data_file = input_file_path
-        self.url = 'https://api.hubapi.com/crm-associations/v1/associations'
         self.access_token = api_key
         self.headers = {
             "Authorization": f"Bearer {self.access_token}",
@@ -21,8 +20,7 @@ class HubspotAPI():
             with open(self.input_data_file, mode='r', encoding='utf-8') as file:
                 csv_reader = csv.DictReader(file)
                 data = list(csv_reader)
-                for row in data:
-                    row['action'] = row['action'].lower() # Lowercase the action column
+
             try:
                 ValidateCSV(data)
             except ValueError as e:
@@ -48,13 +46,14 @@ class HubspotAPI():
             return False
     
     def update_parent_company(self, company_id, parent_company_id):
+        url = 'https://api.hubapi.com/crm-associations/v1/associations'
         payload = {
             "fromObjectId": company_id,
             "toObjectId": parent_company_id,
             "category": "HUBSPOT_DEFINED",
             "definitionId": 13
         }
-        response = requests.post(url=self.url, headers=self.headers, json=payload)
+        response = requests.post(url=url, headers=self.headers, json=payload)
         if response.status_code != 200:
             error_message = f"Error associating Parent company {parent_company_id} with {company_id}: {response.status_code} - {response.text}"
             logging.error(error_message)
