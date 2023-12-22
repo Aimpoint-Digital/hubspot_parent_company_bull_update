@@ -2,7 +2,6 @@ import requests
 import os
 import csv
 import json
-import dotenv
 from datetime import datetime
 import logging
 from src.validate_csv import ValidateCSV
@@ -12,18 +11,13 @@ class HubspotAPI():
         self.base_path = base_path
         self.input_data_file = input_file_path
         self.url = 'https://api.hubapi.com/crm-associations/v1/associations'
-        if api_key:
-            self.access_token = api_key
-        else:
-            env_file = "env_prod.env"
-            dotenv.load_dotenv(env_file)
-            self.access_token = os.getenv("HUBSPOT_ACCESS_TOKEN")
+        self.access_token = api_key
         self.headers = {
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json"
         }
 
-    def load_and_group_data(self):
+    def load_and_validate_data(self):
             with open(self.input_data_file, mode='r', encoding='utf-8') as file:
                 csv_reader = csv.DictReader(file)
                 data = list(csv_reader)
@@ -35,15 +29,8 @@ class HubspotAPI():
                 error_message = f"Validation error: {e}"
                 logging.error(error_message)
                 raise Exception(error_message)
-                
-            grouped_data = {}
-            for row in data:
-                key = row['key']
-                if key not in grouped_data:
-                    grouped_data[key] = []
-                grouped_data[key].append(row)
 
-            return grouped_data
+            return data
     
     def write_to_json(self, data, output_path):
         with open(output_path, 'w', encoding='utf-8') as file:
@@ -79,43 +66,55 @@ class HubspotAPI():
                 "parent_company_id": parent_company_id
             })
 
-    def run_merge(self, grouped_data):
-        self.missing = []
+    def run_update(self, data):
+        self.errors = []
         self.results = []
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-        for company in grouped_data.items():
+        for company in data:
             logging.info(f"Processing company: {company}")
 
             # Check that companies exist and have not been processed
             company_missing = False
             if not self.check_company_exists(company["company_id"]) or not self.check_company_exists(company["parent_company_id"]):
                 company_missing = True
-                missing_dict = {
+                error_dict = {
                     "company_id": company["company_id"],
                     "parent_company_id": company["parent_company_id"],
                     "error": "Company not found"
                 }
-                self.missing.append(missing_dict)
+                self.errors.append(error_dict)
                 break
 
             if company_missing:
                 logging.info(f"Skipping company {company}: The company_id or parent_company_id does not exist")
                 continue
 
-        updated_companies = self.update_parent_company(company['company_id'], company['parent_company_id'])
+            try:
+                update_error = False
+                updated_companies = self.update_parent_company(company['company_id'], company['parent_company_id'])
+            except Exception as e:
+                update_error = True
+                update_error_dict = {
+                        "company_id": company["company_id"],
+                        "parent_company_id": company["parent_company_id"],
+                        "error": f"{e}"
+                    }
+                self.errors.append(update_error_dict)
 
-        self.results.append(updated_companies)
+            if update_error:
+                continue
+            
+            self.results.append(updated_companies)
 
-
-        if self.missing:
-            self.write_to_json(self.missing, f"./data/errors/missing_{timestamp}.json")
-        self.write_to_json(self.results, f"./data/outputs/merged_{timestamp}.json")
+        if self.errors:
+            self.write_to_json(self.errors, f"./data/errors/missing_{timestamp}.json")
+        self.write_to_json(self.results, f"./data/outputs/updated_{timestamp}.json")
         return self.results
 
 
 
-def run_hubspot_merge(test=False):
+def run_hubspot_parent_update(test=False):
     # Create directories
     os.makedirs('logs', exist_ok=True)
     os.makedirs('data', exist_ok=True)
@@ -123,7 +122,7 @@ def run_hubspot_merge(test=False):
     os.makedirs('data/errors', exist_ok=True)
     
     # Logging
-    logging.basicConfig(filename='./logs/merge_operations.log',
+    logging.basicConfig(filename='./logs/update_operations.log',
                     level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S')
@@ -148,7 +147,7 @@ def run_hubspot_merge(test=False):
         
         # Start client, load & validate data
         hubspot_client = HubspotAPI(test=test, api_key=api_key, input_file_path="input_data.csv")
-        grouped_data = hubspot_client.load_and_group_data()
+        valid_data = hubspot_client.load_and_validate_data()
 
         # User confirmation
         user_input = input("The data input file has been successfully validated. Do you want to continue with the update? (y/n) ")
@@ -156,9 +155,9 @@ def run_hubspot_merge(test=False):
             logging.info("Update operation aborted.")
             return
         
-        # Run merge
+        # Run update
         logging.info('Update operation started')
-        update_results = hubspot_client.run_merge(grouped_data)
+        update_results = hubspot_client.run_update(valid_data)
         return update_results
 
     except Exception as e:
@@ -166,7 +165,7 @@ def run_hubspot_merge(test=False):
 
 if __name__ == '__main__':
     # Run program
-    run_hubspot_merge()
+    run_hubspot_parent_update()
 
     # Finish
-    logging.info('Merge operation finished')
+    logging.info('Update operation finished')
