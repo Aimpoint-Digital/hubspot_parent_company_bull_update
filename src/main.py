@@ -4,10 +4,10 @@ import csv
 import json
 from datetime import datetime
 import logging
-from src.validate_csv import ValidateCSV
+from validate_csv import ValidateCSV
 
 class HubspotAPI():
-    def __init__(self, base_path="", api_key=None, input_file_path="../input_data.csv"):
+    def __init__(self, test=False, base_path="", api_key=None, input_file_path="../input_data.csv"):
         self.base_path = base_path
         self.input_data_file = input_file_path
         self.access_token = api_key
@@ -48,13 +48,13 @@ class HubspotAPI():
     def update_parent_company(self, company_id, parent_company_id):
         url = 'https://api.hubapi.com/crm-associations/v1/associations'
         payload = {
-            "fromObjectId": company_id,
-            "toObjectId": parent_company_id,
+            "fromObjectId": parent_company_id,
+            "toObjectId": company_id,
             "category": "HUBSPOT_DEFINED",
             "definitionId": 13
         }
-        response = requests.post(url=url, headers=self.headers, json=payload)
-        if response.status_code != 200:
+        response = requests.put(url=url, headers=self.headers, json=payload)
+        if response.status_code != 204:
             error_message = f"Error associating Parent company {parent_company_id} with {company_id}: {response.status_code} - {response.text}"
             logging.error(error_message)
             raise Exception(error_message)
